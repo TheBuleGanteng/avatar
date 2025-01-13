@@ -10,7 +10,18 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
+from dotenv import load_dotenv
+import logging
+import os
 from pathlib import Path
+
+# Logging ---------------------------------------------------------------------
+logger = logging.getLogger('django')
+
+
+# Path to .env file
+dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'gitignored', '.env')
+load_dotenv(dotenv_path)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,17 +31,35 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-aqpsrq%#jwde*gx8^!$_fu+#b@0pr%b5hpfrmyz6m&g6xz0!os'
+SECRET_KEY = os.getenv('SECRET_KEY')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Selects settings based on .env ---------------------------------------------------
+PROJECT_ENV = os.getenv('ENVIRONMENT', 'development')
+if PROJECT_ENV == 'testing':
+    from .configs_project.config_testing import *
+elif PROJECT_ENV == 'production':
+    from .configs_project.config_prod import *
+else:
+    from .configs_project.config_dev import *
 
+
+
+# Allowed hosts ----------------------------------------------------------------
 ALLOWED_HOSTS = []
 
 
-# Application definition
 
+# Project name ----------------------------------------------------------------
+PROJECT_NAME = 'avatar'
+
+
+
+# Application definition ------------------------------------------------------
 INSTALLED_APPS = [
+    # Apps created
+    'avatar_chat',
+    'avatar_users',
+    # Default apps
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -70,7 +99,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'avatar.wsgi.application'
 
 
-# Database
+# Database ------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 DATABASES = {
@@ -105,19 +134,96 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Jakarta'
 
 USE_I18N = True
 
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
+# Static files (CSS, JavaScript, Images) --------------------------------------------
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
+STATIC_URL = "static/" # This tells django for look for static files in any folder called 'static'
+STATIC_ROOT = os.path.join(BASE_DIR, 'collected_static') #This tells django/whitenoise/gunicorn where to consolidate the static files for easier serving.
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'shared_static'), # Ensures that the contents of shared_static/ are also collected when running 'manage.py collectstatic'
+]
+MEDIA_URL = 'media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-STATIC_URL = 'static/'
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+
+# Logs configuration -----------------------------------------------------------
+
+LOGS_DIR = BASE_DIR / 'logs'
+os.makedirs(LOGS_DIR, exist_ok=True) # Ensure the logs directory exists
+LOG_FILE_PATH = LOGS_DIR / 'django.log' # Define the log file path
+
+# Define these variables to avoid any undefined variable issues
+log_to_file = os.getenv('LOG_TO_FILE', 'True').lower() in ('true', '1', 't')
+log_to_terminal = os.getenv('LOG_TO_TERMINAL', 'True').lower() in ('true', '1', 't')
+
+logging_level = os.getenv('LOGGING_LEVEL')  # Options: 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+logger.info(f'running settings.py, logging_level is: { logging_level }')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {pathname}:{lineno} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {},
+    'loggers': {
+        'django': {
+            'handlers': [],
+            'level': logging_level,
+            'propagate': True,
+        },
+        'csp_reports': {
+            'handlers': [],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}
+
+# Add file handler if logging to file is enabled
+if log_to_file:
+    LOGGING['handlers']['file'] = {
+        'level': logging_level,
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_FILE_PATH),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 5,
+        'formatter': 'verbose',
+    }
+    LOGGING['loggers']['django']['handlers'].append('file')
+
+# Add console handler if logging to the terminal is enabled
+if log_to_terminal:
+    LOGGING['handlers']['console'] = {
+        'level': logging_level,
+        'class': 'logging.StreamHandler',
+        'formatter': 'verbose',
+    }
+    LOGGING['loggers']['django']['handlers'].append('console')
+
+# Add csp_file handler if specified in the csp_reports logger's handlers
+if 'csp_file' in LOGGING['loggers']['csp_reports'].get('handlers', []):
+    LOGGING['handlers']['csp_file'] = {
+        'level': 'ERROR',
+        'class': 'logging.FileHandler',
+        'filename': str(LOG_FILE_PATH),
+        'formatter': 'verbose',
+    }
+    LOGGING['loggers']['csp_reports']['handlers'].append('csp_file')
